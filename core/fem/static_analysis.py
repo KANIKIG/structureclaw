@@ -4,7 +4,7 @@
 """
 
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -138,6 +138,8 @@ class StaticAnalyzer:
             'status': 'success',
             'displacements': displacements,
             'forces': forces,
+            'reactions': {},
+            'envelope': self._build_envelope(displacements, forces, {}),
             'summary': self._generate_summary(displacements, forces)
         }
 
@@ -145,7 +147,25 @@ class StaticAnalyzer:
         """
         简化分析（当 OpenSees 不可用时）
         """
-        # 简化的框架分析
+        batch_cases = parameters.get('batchCases', [])
+
+        if self._can_run_2d_frame_solver():
+            try:
+                if batch_cases:
+                    return self._run_batch_cases(parameters, self._run_linear_2d_frame)
+                return self._run_linear_2d_frame(parameters)
+            except Exception as e:
+                logger.warning(f"2D frame solver failed, trying truss/zero fallback: {e}")
+
+        if self._can_run_2d_truss_solver():
+            try:
+                if batch_cases:
+                    return self._run_batch_cases(parameters, self._run_linear_2d_truss)
+                return self._run_linear_2d_truss(parameters)
+            except Exception as e:
+                logger.warning(f"2D truss solver failed, fallback to zero-result mode: {e}")
+
+        # 兜底的零结果模式
         displacements = {}
         forces = {}
 
@@ -165,8 +185,624 @@ class StaticAnalyzer:
             'status': 'success',
             'displacements': displacements,
             'forces': forces,
+            'reactions': {},
+            'envelope': self._build_envelope(displacements, forces, {}),
             'note': 'Simplified analysis - OpenSeesPy not available'
         }
+
+    def _run_batch_cases(self, parameters: Dict[str, Any], solver_func) -> Dict[str, Any]:
+        """
+        批量工况分析，并返回跨工况包络。
+        """
+        batch_cases = parameters.get('batchCases', [])
+        if not isinstance(batch_cases, list) or not batch_cases:
+            raise ValueError("batchCases must be a non-empty list")
+
+        case_results: Dict[str, Dict[str, Any]] = {}
+        summary_envelope = {
+            'maxAbsDisplacement': 0.0,
+            'maxAbsAxialForce': 0.0,
+            'maxAbsShearForce': 0.0,
+            'maxAbsMoment': 0.0,
+            'maxAbsReaction': 0.0,
+            'controlCase': {
+                'displacement': '',
+                'axialForce': '',
+                'shearForce': '',
+                'moment': '',
+                'reaction': '',
+            },
+        }
+        node_displacement_envelope: Dict[str, Dict[str, Any]] = {}
+        element_force_envelope: Dict[str, Dict[str, Any]] = {}
+        node_reaction_envelope: Dict[str, Dict[str, Any]] = {}
+
+        for idx, case in enumerate(batch_cases):
+            case_id = str(case.get('id', f'case_{idx + 1}'))
+            case_parameters = {k: v for k, v in parameters.items() if k != 'batchCases'}
+            for key in ('loadCases', 'loadCaseIds', 'loadCombinationId'):
+                if key in case:
+                    case_parameters[key] = case[key]
+
+            case_result = solver_func(case_parameters)
+            case_results[case_id] = case_result
+            self._accumulate_case_envelope_tables(
+                case_id,
+                case_result,
+                node_displacement_envelope,
+                element_force_envelope,
+                node_reaction_envelope,
+            )
+
+            env = case_result.get('envelope', {})
+            mapping = [
+                ('maxAbsDisplacement', 'displacement'),
+                ('maxAbsAxialForce', 'axialForce'),
+                ('maxAbsShearForce', 'shearForce'),
+                ('maxAbsMoment', 'moment'),
+                ('maxAbsReaction', 'reaction'),
+            ]
+            for metric, control_name in mapping:
+                value = float(env.get(metric, 0.0))
+                if value > float(summary_envelope[metric]):
+                    summary_envelope[metric] = value
+                    summary_envelope['controlCase'][control_name] = case_id
+
+        return {
+            'status': 'success',
+            'analysisMode': case_results[next(iter(case_results))].get('analysisMode', 'batch'),
+            'batchCaseCount': len(case_results),
+            'caseResults': case_results,
+            'envelope': summary_envelope,
+            'envelopeTables': {
+                'nodeDisplacement': node_displacement_envelope,
+                'elementForce': element_force_envelope,
+                'nodeReaction': node_reaction_envelope,
+            },
+            'summary': {
+                'caseCount': len(case_results),
+                'maxAbsDisplacement': summary_envelope['maxAbsDisplacement'],
+            },
+        }
+
+    def _accumulate_case_envelope_tables(
+        self,
+        case_id: str,
+        case_result: Dict[str, Any],
+        node_displacement_envelope: Dict[str, Dict[str, Any]],
+        element_force_envelope: Dict[str, Dict[str, Any]],
+        node_reaction_envelope: Dict[str, Dict[str, Any]],
+    ) -> None:
+        """累计单工况结果到跨工况明细包络表。"""
+        displacements = case_result.get('displacements', {})
+        for node_id, disp in displacements.items():
+            ux = float(disp.get('ux', 0.0))
+            uy = float(disp.get('uy', 0.0))
+            uz = float(disp.get('uz', 0.0))
+            mag = float(np.sqrt(ux * ux + uy * uy + uz * uz))
+            item = node_displacement_envelope.setdefault(
+                str(node_id),
+                {
+                    'maxAbsDisplacement': 0.0,
+                    'controlCase': '',
+                },
+            )
+            if mag > float(item['maxAbsDisplacement']):
+                item['maxAbsDisplacement'] = mag
+                item['controlCase'] = case_id
+
+        forces = case_result.get('forces', {})
+        for elem_id, force in forces.items():
+            axial = abs(float(force.get('axial', 0.0))) if isinstance(force, dict) else 0.0
+            shear = 0.0
+            moment = 0.0
+            if isinstance(force, dict):
+                if isinstance(force.get('n1'), dict):
+                    shear = max(shear, abs(float(force['n1'].get('V', 0.0))))
+                    moment = max(moment, abs(float(force['n1'].get('M', 0.0))))
+                if isinstance(force.get('n2'), dict):
+                    shear = max(shear, abs(float(force['n2'].get('V', 0.0))))
+                    moment = max(moment, abs(float(force['n2'].get('M', 0.0))))
+
+            item = element_force_envelope.setdefault(
+                str(elem_id),
+                {
+                    'maxAbsAxialForce': 0.0,
+                    'maxAbsShearForce': 0.0,
+                    'maxAbsMoment': 0.0,
+                    'controlCaseAxial': '',
+                    'controlCaseShear': '',
+                    'controlCaseMoment': '',
+                },
+            )
+            if axial > float(item['maxAbsAxialForce']):
+                item['maxAbsAxialForce'] = axial
+                item['controlCaseAxial'] = case_id
+            if shear > float(item['maxAbsShearForce']):
+                item['maxAbsShearForce'] = shear
+                item['controlCaseShear'] = case_id
+            if moment > float(item['maxAbsMoment']):
+                item['maxAbsMoment'] = moment
+                item['controlCaseMoment'] = case_id
+
+        reactions = case_result.get('reactions', {})
+        for node_id, reaction in reactions.items():
+            max_reaction = 0.0
+            for v in self._iter_numeric_values(reaction):
+                max_reaction = max(max_reaction, abs(float(v)))
+
+            item = node_reaction_envelope.setdefault(
+                str(node_id),
+                {
+                    'maxAbsReaction': 0.0,
+                    'controlCase': '',
+                },
+            )
+            if max_reaction > float(item['maxAbsReaction']):
+                item['maxAbsReaction'] = max_reaction
+                item['controlCase'] = case_id
+
+    def _can_run_2d_truss_solver(self) -> bool:
+        """判断是否可用内置 2D truss 求解器。"""
+        if not self.model.elements:
+            return False
+        return all(elem.type == 'truss' for elem in self.model.elements)
+
+    def _can_run_2d_frame_solver(self) -> bool:
+        """判断是否可用内置 2D frame 求解器。"""
+        if not self.model.elements:
+            return False
+        return all(elem.type == 'beam' for elem in self.model.elements)
+
+    def _run_linear_2d_truss(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        2D truss 线弹性静力分析（x-z 平面）
+        """
+        node_order = sorted(self.model.nodes, key=lambda n: n.id)
+        node_index = {node.id: idx for idx, node in enumerate(node_order)}
+        dof_count = len(node_order) * 2  # ux, uz
+
+        K = np.zeros((dof_count, dof_count), dtype=float)
+        F = np.zeros(dof_count, dtype=float)
+
+        for elem in self.model.elements:
+            n1 = self.nodes[elem.nodes[0]]
+            n2 = self.nodes[elem.nodes[1]]
+            mat = self.materials[elem.material]
+            sec = self.sections[elem.section]
+
+            x1, z1 = n1.x, n1.z
+            x2, z2 = n2.x, n2.z
+            dx, dz = x2 - x1, z2 - z1
+            L = float(np.sqrt(dx * dx + dz * dz))
+            if L <= 0.0:
+                raise ValueError(f"Element '{elem.id}' has zero length")
+
+            A = float(sec.properties.get('A', 0.0))
+            if A <= 0.0:
+                raise ValueError(f"Element '{elem.id}' requires section area A > 0")
+
+            E = float(mat.E)
+            c = dx / L
+            s = dz / L
+            k = (A * E) / L
+
+            ke = k * np.array(
+                [
+                    [c * c, c * s, -c * c, -c * s],
+                    [c * s, s * s, -c * s, -s * s],
+                    [-c * c, -c * s, c * c, c * s],
+                    [-c * s, -s * s, c * s, s * s],
+                ],
+                dtype=float,
+            )
+
+            i = node_index[n1.id] * 2
+            j = node_index[n2.id] * 2
+            dofs = [i, i + 1, j, j + 1]
+            for r in range(4):
+                for c_idx in range(4):
+                    K[dofs[r], dofs[c_idx]] += ke[r, c_idx]
+
+        for load in self._collect_nodal_loads(parameters):
+            node_id = str(load.get('node', ''))
+            if node_id not in node_index:
+                continue
+            i = node_index[node_id] * 2
+            F[i] += float(load.get('fx', 0.0))
+            # 兼容 fy/fz，统一映射到 x-z 平面的竖向 z
+            F[i + 1] += float(load.get('fz', load.get('fy', 0.0)))
+
+        fixed_dofs = set()
+        for node in node_order:
+            idx = node_index[node.id] * 2
+            restraints = node.restraints or [False] * 6
+            if restraints[0]:
+                fixed_dofs.add(idx)
+            # z 向平移约束（常见 3D 第3个自由度）
+            if restraints[2]:
+                fixed_dofs.add(idx + 1)
+
+        free_dofs = [i for i in range(dof_count) if i not in fixed_dofs]
+        if not free_dofs:
+            raise ValueError("No free DOFs for solving")
+
+        Kff = K[np.ix_(free_dofs, free_dofs)]
+        Ff = F[free_dofs]
+        Uf = np.linalg.solve(Kff, Ff)
+
+        U = np.zeros(dof_count, dtype=float)
+        U[free_dofs] = Uf
+
+        R = K @ U - F
+
+        displacements = {}
+        for node in node_order:
+            i = node_index[node.id] * 2
+            displacements[node.id] = {
+                'ux': float(U[i]),
+                'uy': 0.0,
+                'uz': float(U[i + 1]),
+                'rx': 0.0,
+                'ry': 0.0,
+                'rz': 0.0,
+            }
+
+        forces = {}
+        for elem in self.model.elements:
+            n1 = self.nodes[elem.nodes[0]]
+            n2 = self.nodes[elem.nodes[1]]
+            mat = self.materials[elem.material]
+            sec = self.sections[elem.section]
+
+            x1, z1 = n1.x, n1.z
+            x2, z2 = n2.x, n2.z
+            dx, dz = x2 - x1, z2 - z1
+            L = float(np.sqrt(dx * dx + dz * dz))
+            A = float(sec.properties.get('A', 0.0))
+            E = float(mat.E)
+            c = dx / L
+            s = dz / L
+
+            i = node_index[n1.id] * 2
+            j = node_index[n2.id] * 2
+            u1x, u1z = U[i], U[i + 1]
+            u2x, u2z = U[j], U[j + 1]
+            delta = c * (u2x - u1x) + s * (u2z - u1z)
+            axial_force = (A * E / L) * delta
+            forces[elem.id] = {
+                'axial': float(axial_force),
+                'stress': float(axial_force / A) if A > 0.0 else 0.0,
+            }
+
+        reactions = {}
+        for node in node_order:
+            i = node_index[node.id] * 2
+            if i in fixed_dofs or (i + 1) in fixed_dofs:
+                reactions[node.id] = {
+                    'fx': float(R[i]),
+                    'fz': float(R[i + 1]),
+                }
+
+        return {
+            'status': 'success',
+            'analysisMode': 'linear_2d_truss',
+            'displacements': displacements,
+            'forces': forces,
+            'reactions': reactions,
+            'envelope': self._build_envelope(displacements, forces, reactions),
+            'summary': self._generate_summary(displacements, forces),
+        }
+
+    def _run_linear_2d_frame(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        2D frame/beam 线弹性静力分析（x-z 平面，DOF: ux, uz, ry）
+        """
+        node_order = sorted(self.model.nodes, key=lambda n: n.id)
+        node_index = {node.id: idx for idx, node in enumerate(node_order)}
+        dof_count = len(node_order) * 3
+
+        K = np.zeros((dof_count, dof_count), dtype=float)
+        F = np.zeros(dof_count, dtype=float)
+
+        load_list = self._collect_nodal_loads(parameters)
+        element_distributed_loads: Dict[str, List[float]] = {}
+        for load in load_list:
+            if str(load.get('type', '')) == 'distributed':
+                elem_id = str(load.get('element', ''))
+                if not elem_id:
+                    continue
+                # 约定 q>0 沿局部 +v 方向；常见竖向向下可传负值
+                q = float(load.get('wz', load.get('fy', load.get('fz', 0.0))))
+                element_distributed_loads.setdefault(elem_id, []).append(q)
+
+        element_meta: Dict[str, Dict[str, Any]] = {}
+        for elem in self.model.elements:
+            n1 = self.nodes[elem.nodes[0]]
+            n2 = self.nodes[elem.nodes[1]]
+            mat = self.materials[elem.material]
+            sec = self.sections[elem.section]
+
+            x1, z1 = n1.x, n1.z
+            x2, z2 = n2.x, n2.z
+            dx, dz = x2 - x1, z2 - z1
+            L = float(np.sqrt(dx * dx + dz * dz))
+            if L <= 0.0:
+                raise ValueError(f"Element '{elem.id}' has zero length")
+
+            A = float(sec.properties.get('A', 0.0))
+            if A <= 0.0:
+                raise ValueError(f"Element '{elem.id}' requires section area A > 0")
+
+            E = float(mat.E)
+            I = float(sec.properties.get('Iy', sec.properties.get('Iz', 0.0)))
+            if I <= 0.0:
+                raise ValueError(f"Element '{elem.id}' requires section inertia Iy/Iz > 0")
+
+            c = dx / L
+            s = dz / L
+
+            k_local = np.array(
+                [
+                    [E * A / L, 0, 0, -E * A / L, 0, 0],
+                    [0, 12 * E * I / (L**3), 6 * E * I / (L**2), 0, -12 * E * I / (L**3), 6 * E * I / (L**2)],
+                    [0, 6 * E * I / (L**2), 4 * E * I / L, 0, -6 * E * I / (L**2), 2 * E * I / L],
+                    [-E * A / L, 0, 0, E * A / L, 0, 0],
+                    [0, -12 * E * I / (L**3), -6 * E * I / (L**2), 0, 12 * E * I / (L**3), -6 * E * I / (L**2)],
+                    [0, 6 * E * I / (L**2), 2 * E * I / L, 0, -6 * E * I / (L**2), 4 * E * I / L],
+                ],
+                dtype=float,
+            )
+
+            T = np.array(
+                [
+                    [c, s, 0, 0, 0, 0],
+                    [-s, c, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, c, s, 0],
+                    [0, 0, 0, -s, c, 0],
+                    [0, 0, 0, 0, 0, 1],
+                ],
+                dtype=float,
+            )
+            k_global = T.T @ k_local @ T
+
+            i = node_index[n1.id] * 3
+            j = node_index[n2.id] * 3
+            dofs = [i, i + 1, i + 2, j, j + 1, j + 2]
+            for r in range(6):
+                for c_idx in range(6):
+                    K[dofs[r], dofs[c_idx]] += k_global[r, c_idx]
+
+            q = sum(element_distributed_loads.get(elem.id, []))
+            f_local_dist = np.zeros(6, dtype=float)
+            if abs(q) > 0.0:
+                f_local_dist = np.array(
+                    [0.0, q * L / 2.0, q * (L**2) / 12.0, 0.0, q * L / 2.0, -q * (L**2) / 12.0],
+                    dtype=float,
+                )
+                F[dofs] += T.T @ f_local_dist
+
+            element_meta[elem.id] = {
+                'dofs': dofs,
+                'k_local': k_local,
+                'transform': T,
+                'f_local_dist': f_local_dist,
+                'A': A,
+            }
+
+        for load in load_list:
+            if str(load.get('type', '')) == 'distributed':
+                continue
+            node_id = str(load.get('node', ''))
+            if node_id not in node_index:
+                continue
+            i = node_index[node_id] * 3
+            F[i] += float(load.get('fx', 0.0))
+            F[i + 1] += float(load.get('fz', load.get('fy', 0.0)))
+            F[i + 2] += float(load.get('my', load.get('momentY', 0.0)))
+
+        fixed_dofs = set()
+        for node in node_order:
+            idx = node_index[node.id] * 3
+            restraints = node.restraints or [False] * 6
+            if restraints[0]:
+                fixed_dofs.add(idx)
+            if restraints[2]:
+                fixed_dofs.add(idx + 1)
+            if restraints[4]:
+                fixed_dofs.add(idx + 2)
+
+        free_dofs = [i for i in range(dof_count) if i not in fixed_dofs]
+        if not free_dofs:
+            raise ValueError("No free DOFs for solving")
+
+        Kff = K[np.ix_(free_dofs, free_dofs)]
+        Ff = F[free_dofs]
+        Uf = np.linalg.solve(Kff, Ff)
+
+        U = np.zeros(dof_count, dtype=float)
+        U[free_dofs] = Uf
+        R = K @ U - F
+
+        displacements = {}
+        for node in node_order:
+            i = node_index[node.id] * 3
+            displacements[node.id] = {
+                'ux': float(U[i]),
+                'uy': 0.0,
+                'uz': float(U[i + 1]),
+                'rx': 0.0,
+                'ry': float(U[i + 2]),
+                'rz': 0.0,
+            }
+
+        forces = {}
+        for elem in self.model.elements:
+            meta = element_meta[elem.id]
+            dofs = meta['dofs']
+            u_global = U[dofs]
+            u_local = meta['transform'] @ u_global
+            f_local = meta['k_local'] @ u_local - meta['f_local_dist']
+            A = float(meta['A'])
+            forces[elem.id] = {
+                'n1': {'N': float(f_local[0]), 'V': float(f_local[1]), 'M': float(f_local[2])},
+                'n2': {'N': float(f_local[3]), 'V': float(f_local[4]), 'M': float(f_local[5])},
+                'axial': float(f_local[0]),
+                'stress': float(f_local[0] / A) if A > 0.0 else 0.0,
+            }
+
+        reactions = {}
+        for node in node_order:
+            i = node_index[node.id] * 3
+            if i in fixed_dofs or (i + 1) in fixed_dofs or (i + 2) in fixed_dofs:
+                reactions[node.id] = {
+                    'fx': float(R[i]),
+                    'fz': float(R[i + 1]),
+                    'my': float(R[i + 2]),
+                }
+
+        return {
+            'status': 'success',
+            'analysisMode': 'linear_2d_frame',
+            'displacements': displacements,
+            'forces': forces,
+            'reactions': reactions,
+            'envelope': self._build_envelope(displacements, forces, reactions),
+            'summary': self._generate_summary(displacements, forces),
+        }
+
+    def _collect_nodal_loads(self, parameters: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """收集荷载（优先 request.parameters，其次模型中的 load_cases）。"""
+        loads: List[Dict[str, Any]] = []
+
+        load_combination_id = parameters.get('loadCombinationId')
+        if load_combination_id:
+            for combo in self.model.load_combinations:
+                if combo.id != str(load_combination_id):
+                    continue
+                case_map = {lc.id: lc for lc in self.model.load_cases}
+                for case_id, factor in combo.factors.items():
+                    lc = case_map.get(case_id)
+                    if not lc:
+                        continue
+                    for load in lc.loads:
+                        if isinstance(load, dict):
+                            loads.append(self._scale_load(load, float(factor)))
+                return loads
+
+        for lc in parameters.get('loadCases', []):
+            for load in lc.get('loads', []):
+                if isinstance(load, dict):
+                    loads.append(load)
+
+        load_case_ids = parameters.get('loadCaseIds')
+        if load_case_ids:
+            allowed = set(str(i) for i in load_case_ids)
+            for lc in self.model.load_cases:
+                if lc.id in allowed:
+                    loads.extend(lc.loads)
+        elif not loads:
+            for lc in self.model.load_cases:
+                loads.extend(lc.loads)
+
+        return loads
+
+    def _scale_load(self, load: Dict[str, Any], factor: float) -> Dict[str, Any]:
+        """按组合系数缩放荷载中的数值字段。"""
+        scaled = dict(load)
+        numeric_keys = [
+            'fx', 'fy', 'fz', 'my', 'momentY', 'wy', 'wz',
+        ]
+        for key in numeric_keys:
+            if key in scaled:
+                scaled[key] = float(scaled[key]) * factor
+        return scaled
+
+    def _build_envelope(self, displacements: Dict[str, Any], forces: Dict[str, Any], reactions: Dict[str, Any]) -> Dict[str, Any]:
+        """构建结果包络：最大位移、内力与反力绝对值。"""
+        max_abs_disp = 0.0
+        control_node_disp = ''
+        for node_id, disp in displacements.items():
+            if not isinstance(disp, dict):
+                continue
+            ux = float(disp.get('ux', 0.0))
+            uy = float(disp.get('uy', 0.0))
+            uz = float(disp.get('uz', 0.0))
+            mag = float(np.sqrt(ux * ux + uy * uy + uz * uz))
+            if mag > max_abs_disp:
+                max_abs_disp = mag
+                control_node_disp = str(node_id)
+
+        max_abs_axial = 0.0
+        max_abs_shear = 0.0
+        max_abs_moment = 0.0
+        control_element_axial = ''
+        control_element_shear = ''
+        control_element_moment = ''
+        for elem_id, force in forces.items():
+            if isinstance(force, dict):
+                axial = abs(float(force.get('axial', 0.0)))
+                if axial > max_abs_axial:
+                    max_abs_axial = axial
+                    control_element_axial = str(elem_id)
+
+                if 'n1' in force and isinstance(force['n1'], dict):
+                    shear_n1 = abs(float(force['n1'].get('V', 0.0)))
+                    moment_n1 = abs(float(force['n1'].get('M', 0.0)))
+                    if shear_n1 > max_abs_shear:
+                        max_abs_shear = shear_n1
+                        control_element_shear = str(elem_id)
+                    if moment_n1 > max_abs_moment:
+                        max_abs_moment = moment_n1
+                        control_element_moment = str(elem_id)
+                if 'n2' in force and isinstance(force['n2'], dict):
+                    shear_n2 = abs(float(force['n2'].get('V', 0.0)))
+                    moment_n2 = abs(float(force['n2'].get('M', 0.0)))
+                    if shear_n2 > max_abs_shear:
+                        max_abs_shear = shear_n2
+                        control_element_shear = str(elem_id)
+                    if moment_n2 > max_abs_moment:
+                        max_abs_moment = moment_n2
+                        control_element_moment = str(elem_id)
+            elif isinstance(force, list):
+                for v in force:
+                    axial = abs(float(v))
+                    if axial > max_abs_axial:
+                        max_abs_axial = axial
+                        control_element_axial = str(elem_id)
+
+        max_abs_reaction = 0.0
+        control_node_reaction = ''
+        for node_id, reaction in reactions.items():
+            for v in self._iter_numeric_values(reaction):
+                abs_v = abs(float(v))
+                if abs_v > max_abs_reaction:
+                    max_abs_reaction = abs_v
+                    control_node_reaction = str(node_id)
+
+        return {
+            'maxAbsDisplacement': max_abs_disp,
+            'maxAbsAxialForce': max_abs_axial,
+            'maxAbsShearForce': max_abs_shear,
+            'maxAbsMoment': max_abs_moment,
+            'maxAbsReaction': max_abs_reaction,
+            'controlNodeDisplacement': control_node_disp,
+            'controlElementAxialForce': control_element_axial,
+            'controlElementShearForce': control_element_shear,
+            'controlElementMoment': control_element_moment,
+            'controlNodeReaction': control_node_reaction,
+        }
+
+    def _iter_numeric_values(self, obj: Any):
+        if isinstance(obj, dict):
+            for value in obj.values():
+                yield from self._iter_numeric_values(value)
+        elif isinstance(obj, list):
+            for value in obj:
+                yield from self._iter_numeric_values(value)
+        elif isinstance(obj, (int, float, np.floating, np.integer)):
+            yield float(obj)
 
     def run_nonlinear(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """

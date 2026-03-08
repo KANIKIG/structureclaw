@@ -19,6 +19,8 @@
 
 - 多服务骨架已可运行：`frontend` + `backend` + `core` + `docker-compose`
 - 本地一键开发命令：`make doctor/start/status/stop/logs`
+- Core 回归入口命令：`make core-regression`（契约 + 静力算例 + 数据模型样例）
+- CI 已接入 Core 回归工作流：`.github/workflows/core-regression.yml`
 - 独立 CLI 已可用：`./sclaw ...`，并支持 npm 安装后直接 `sclaw ...`
 - 基础启动检查已接入：后端/前端/core 的可运行性检查
 
@@ -65,6 +67,9 @@
 - 分析/校核结果的工程级准确性、覆盖面、可追溯性仍需系统建设
 - 样例回归已落地 20 个 `StructureModel v1` 基础样例，并接入本地校验脚本
 - `POST /analyze` 已增加响应契约回归检查（固定字段与错误码）
+- 已落地静力线弹性 `2D truss + 2D frame`（OpenSees 不可用时的内置求解路径），支持节点力/均布荷载/荷载组合/批量工况分析与黄金算例回归脚本（误差阈值可配置，当前 10 个算例）
+- 静力结果已补充包络字段：位移/轴力/剪力/弯矩/支座反力最大绝对值，并输出按节点/单元/工况的控制值
+- 已补充批量工况明细包络表：按节点位移、按单元内力、按节点反力的控制值与控制工况
 
 ---
 
