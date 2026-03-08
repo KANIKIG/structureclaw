@@ -23,3 +23,5 @@ core/.venv/
 
 uploads/*
 !uploads/.gitkeep
+
+frontend/tsconfig.tsbuildinfo
