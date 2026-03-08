@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
+BACKEND_ENV_FILE="$ROOT_DIR/backend/.env"
 CORE_PROFILE="lite"
 CORE_ENV_MANAGER="auto"
 SKIP_INFRA=0
@@ -86,7 +87,7 @@ start_service() {
   fi
 
   echo "Starting $name..."
-  bash -lc "cd \"$ROOT_DIR\" && $command" >>"$log_file" 2>&1 &
+  setsid bash -lc "cd \"$ROOT_DIR\" && exec $command" >>"$log_file" 2>&1 &
   echo $! >"$pid_file"
 }
 
@@ -102,6 +103,31 @@ require_command() {
 
 has_command() {
   command -v "$1" >/dev/null 2>&1
+}
+
+is_redis_enabled() {
+  local redis_url=""
+
+  if [[ -f "$BACKEND_ENV_FILE" ]]; then
+    redis_url="$(python - "$BACKEND_ENV_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+env_path = Path(sys.argv[1])
+
+for raw_line in env_path.read_text().splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    if key.strip() == "REDIS_URL":
+        print(value.strip().strip('"').strip("'"))
+        break
+PY
+)"
+  fi
+
+  [[ -n "$redis_url" && "${redis_url,,}" != "disabled" ]]
 }
 
 docker_ready() {
@@ -176,7 +202,13 @@ if [[ "$SKIP_INFRA" -eq 0 ]]; then
   fi
 
   echo "Starting local infrastructure..."
-  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d postgres redis
+  compose_services=(postgres)
+  if is_redis_enabled; then
+    compose_services+=(redis)
+  else
+    echo "Redis is disabled in backend/.env; skipping redis container startup."
+  fi
+  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d "${compose_services[@]}"
   wait_for_postgres
 else
   echo "Skipping local postgres/redis startup (--skip-infra)."
