@@ -157,6 +157,10 @@ make logs
 - API Docs: `http://localhost:8000/docs`
 - Analysis Engine: `http://localhost:8001`
 
+## 开发文档
+
+- 开发路线与已完成功能清单：`docs/development-roadmap.md`
+
 ## 环境变量
 
 ### 根目录 `.env`
