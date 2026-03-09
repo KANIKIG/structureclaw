@@ -41,3 +41,11 @@ Object.defineProperties(HTMLElement.prototype, {
     },
   },
 })
+
+// Mock ResizeObserver for react-resizable-panels
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
