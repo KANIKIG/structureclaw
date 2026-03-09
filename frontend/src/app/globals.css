@@ -279,6 +279,62 @@ pre {
   overflow: hidden;
 }
 
+.timeline-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.timeline-marker {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-top: 6px;
+  background: #6ea2bf;
+}
+
+.timeline-item.ok .timeline-marker {
+  background: var(--accent-2);
+}
+
+.timeline-item.error .timeline-marker {
+  background: var(--danger);
+}
+
+.timeline-content {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0d1824;
+  padding: 8px 10px;
+}
+
+.timeline-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.timeline-top span {
+  color: #9ec0d2;
+  font-family: var(--font-heading), sans-serif;
+}
+
+.timeline-content p {
+  margin: 4px 0 0;
+  color: #d8e6ee;
+  font-size: 12px;
+}
+
 .tool-row {
   display: grid;
   grid-template-columns: 1.3fr 0.8fr 1fr 1fr;
