@@ -61,7 +61,7 @@ describe('Button Component (COMP-01)', () => {
     render(<Button>Focus Test</Button>)
     const button = screen.getByRole('button')
     expect(button).toHaveClass('focus-visible:ring-2')
-    expect(button).toHaveClass('ring-ring')
+    expect(button).toHaveClass('focus-visible:ring-ring')
   })
 
   it('is disabled when disabled prop is true', async () => {
