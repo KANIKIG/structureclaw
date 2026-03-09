@@ -46,10 +46,10 @@ Frontend rewrite requirements, all implemented in v1.
 
 ### Console
 
-- [ ] **CONS-01**: Endpoint selection UI (agent-run, chat-message, chat-execute)
-- [ ] **CONS-02**: Mode selection UI (chat, execute, auto)
-- [ ] **CONS-03**: Message input area
-- [ ] **CONS-04**: Model JSON input area (collapsible)
+- [x] **CONS-01**: Endpoint selection UI (agent-run, chat-message, chat-execute)
+- [x] **CONS-02**: Mode selection UI (chat, execute, auto)
+- [x] **CONS-03**: Message input area
+- [x] **CONS-04**: Model JSON input area (collapsible)
 - [ ] **CONS-05**: Configuration options panel (analysisType, reportFormat, reportOutput)
 - [ ] **CONS-06**: Checkbox group (includeModel, autoAnalyze, autoCodeCheck, includeReport)
 - [ ] **CONS-07**: Execute button (sync + SSE streaming)
@@ -136,10 +136,10 @@ Which phase covers which requirement. Updated during roadmap creation.
 | STAT-02 | Phase 4 | Complete |
 | STAT-03 | Phase 4 | Complete |
 | STAT-04 | Phase 4 | Complete |
-| CONS-01 | Phase 5 | Pending |
-| CONS-02 | Phase 5 | Pending |
-| CONS-03 | Phase 5 | Pending |
-| CONS-04 | Phase 5 | Pending |
+| CONS-01 | Phase 5 | Complete |
+| CONS-02 | Phase 5 | Complete |
+| CONS-03 | Phase 5 | Complete |
+| CONS-04 | Phase 5 | Complete |
 | CONS-05 | Phase 5 | Pending |
 | CONS-06 | Phase 5 | Pending |
 | CONS-07 | Phase 5 | Pending |
