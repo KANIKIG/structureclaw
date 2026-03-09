@@ -3,9 +3,9 @@ import './globals.css'
 import { Providers } from './providers'
 
 export const metadata: Metadata = {
-  title: 'StructureClaw - 建筑结构分析设计社区',
-  description: '开源建筑结构分析与设计社区平台，融合 AI 智能助手、有限元分析引擎和协作社区功能',
-  keywords: ['结构分析', '有限元', '建筑结构', '结构设计', 'AI', 'OpenSees'],
+  title: 'StructureClaw - 结构工程 AI 控制台',
+  description: 'StructureClaw 前端控制台：统一调试 Agent 编排、Chat 路由与结构分析能力',
+  keywords: ['结构分析', '有限元', '结构设计', 'Agent', 'Chat', 'OpenSees'],
 }
 
 export default function RootLayout({
