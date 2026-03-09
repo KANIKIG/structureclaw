@@ -111,12 +111,13 @@ Plans:
 **Plans**: TBD
 
 Plans:
+- [ ] 05-00: Wave 0 - Test infrastructure and shadcn/ui components
 - [ ] 05-01: Console input controls (endpoint, mode, message, model JSON)
-- [ ] 05-02: Configuration panel (options, checkboxes, execute button)
-- [ ] 05-03: Result display (status, metrics, timeline)
-- [ ] 05-04: Artifacts and debug output
-- [ ] 05-05: SSE streaming and flow state indicator
-- [ ] 05-06: Error states and clarification prompts
+- [ ] 05-02: Configuration panel and execution hook (CONS-05, CONS-06, CONS-07, CONS-12)
+- [ ] 05-03: Result display (CONS-08, CONS-09, CONS-10, CONS-17)
+- [ ] 05-04: Artifacts and debug output (CONS-11, CONS-14)
+- [ ] 05-05: Status indicator and console page (CONS-13)
+- [ ] 05-06: Error states and clarification prompts (CONS-15, CONS-16)
 
 ### Phase 6: Pages & Accessibility
 **Goal**: Complete the application with polished pages and validated accessibility
@@ -147,7 +148,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Component Library | 5/5 | Complete | 2026-03-09 |
 | 3. Layout System | 3/3 | Complete | 2026-03-09 |
 | 4. State & API Layer | 0/3 | Complete    | 2026-03-09 |
-| 5. Console Feature | 0/6 | Not started | - |
+| 5. Console Feature | 0/7 | Not started | - |
 | 6. Pages & Accessibility | 0/4 | Not started | - |
 
 ---
@@ -157,3 +158,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 *Phase 1 planned: 2026-03-09*
 *Phase 3 planned: 2026-03-09*
 *Phase 4 planned: 2026-03-09*
+*Phase 5 planned: 2026-03-10*
