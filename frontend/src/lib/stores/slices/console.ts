@@ -97,6 +97,7 @@ export interface ConsoleActions {
   setEndpoint: (endpoint: ConsoleEndpoint) => void
   setMode: (mode: ConsoleMode) => void
   setConversationId: (id: string | null) => void
+  setTraceId: (id: string | null) => void
   resetConsole: () => void
 
   // Form state actions
@@ -181,6 +182,7 @@ export const createConsoleSlice: StateCreator<ConsoleSlice, [], [], ConsoleSlice
   setEndpoint: (endpoint) => set({ endpoint }),
   setMode: (mode) => set({ mode }),
   setConversationId: (conversationId) => set({ conversationId }),
+  setTraceId: (traceId) => set({ traceId }),
   resetConsole: () => set(initialConsoleState),
 
   // Form state actions
