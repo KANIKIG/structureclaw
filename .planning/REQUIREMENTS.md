@@ -58,7 +58,7 @@ Frontend rewrite requirements, all implemented in v1.
 - [ ] **CONS-10**: Tool call timeline (execution order, status, duration)
 - [ ] **CONS-11**: Artifacts list display
 - [x] **CONS-12**: SSE streaming execution support
-- [ ] **CONS-13**: Flow state indicator (connecting, receiving, complete)
+- [x] **CONS-13**: Flow state indicator (connecting, receiving, complete)
 - [ ] **CONS-14**: Debug output panel (Raw JSON + Stream Frames)
 - [ ] **CONS-15**: Error state display
 - [ ] **CONS-16**: Clarification question display (missing parameter prompt)
@@ -148,7 +148,7 @@ Which phase covers which requirement. Updated during roadmap creation.
 | CONS-10 | Phase 5 | Pending |
 | CONS-11 | Phase 5 | Pending |
 | CONS-12 | Phase 5 | Complete |
-| CONS-13 | Phase 5 | Pending |
+| CONS-13 | Phase 5 | Complete |
 | CONS-14 | Phase 5 | Pending |
 | CONS-15 | Phase 5 | Pending |
 | CONS-16 | Phase 5 | Pending |
