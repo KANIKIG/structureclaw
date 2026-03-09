@@ -51,27 +51,40 @@ class MockResizeObserver {
 global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
 
 // Mock EventSource for SSE hook testing
+// Track all instances for testing purposes
+const eventSourceInstances: MockEventSource[] = []
+
 class MockEventSource {
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSED = 2
+
   url: string
-  readyState: number = EventSource.CONNECTING
+  readyState: number = MockEventSource.CONNECTING
   onopen: ((this: EventSource, ev: Event) => any) | null = null
   onmessage: ((this: EventSource, ev: MessageEvent) => any) | null = null
   onerror: ((this: EventSource, ev: Event) => any) | null = null
 
   constructor(url: string) {
     this.url = url
+    // Track instances for testing
+    eventSourceInstances.push(this)
     // Simulate async connection establishment
     setTimeout(() => {
-      this.readyState = EventSource.OPEN
+      this.readyState = MockEventSource.OPEN
       this.onopen?.call(this as unknown as EventSource, new Event('open'))
     }, 0)
   }
 
   close() {
-    this.readyState = EventSource.CLOSED
+    this.readyState = MockEventSource.CLOSED
   }
 
   addEventListener() {}
   removeEventListener() {}
 }
+
+// Expose instances for test access
+(MockEventSource as any).__instances = eventSourceInstances
+
 global.EventSource = MockEventSource as unknown as typeof EventSource
