@@ -44,6 +44,7 @@ run_check "Agent orchestration regression" "./scripts/validate-agent-orchestrati
 run_check "Agent tools protocol contract" "./scripts/validate-agent-tools-contract.sh"
 run_check "Agent API contract regression" "./scripts/validate-agent-api-contract.sh"
 run_check "Chat stream contract regression" "./scripts/validate-chat-stream-contract.sh"
+run_check "Chat message routing contract" "./scripts/validate-chat-message-routing.sh"
 run_check "Prisma schema validate" "npm run db:validate --prefix backend"
 run_check "Frontend type-check" "npm run type-check --prefix frontend"
 run_check "Frontend lint" "npm run lint --prefix frontend"
