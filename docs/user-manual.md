@@ -318,6 +318,31 @@ make logs
 ./sclaw logs all --follow
 ```
 
+说明：
+- `make logs`/`sclaw logs` 默认优先显示各服务“最近一次启动会话”日志，减少旧错误干扰。
+- 后端 `GET /` 返回 404 属于预期（请使用 `/health` 验证健康状态）。
+
+### 8.1 常见前端排障
+
+如果页面“可访问但没有任何样式”：
+
+1. 确认 `frontend/postcss.config.js` 存在，且包含 `tailwindcss` 与 `autoprefixer`。  
+2. 清理前端构建缓存并重启：
+
+```bash
+make stop
+rm -rf frontend/.next
+make start
+```
+
+3. 强制刷新浏览器缓存（`Ctrl+Shift+R`）。
+
+如果控制台出现：
+
+`Warning: Extra attributes from the server: inject_video_svd`
+
+通常是浏览器扩展注入属性导致，不是服务端业务错误。可用无扩展隐身窗口复测以排除噪音。
+
 ## 9. 已知边界（当前版本）
 
 - 分析能力已覆盖 2D + 3D 最小线弹性场景，更高阶分析待扩展
