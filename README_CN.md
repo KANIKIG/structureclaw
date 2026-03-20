@@ -4,7 +4,7 @@
 
 ## Demo
 
-![StructureClaw 演示](docs/demo.gif)
+https://github.com/user-attachments/assets/031fe757-551d-4775-ab3f-0411037ad5ae
 
 ## 项目能力
 
