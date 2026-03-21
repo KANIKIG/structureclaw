@@ -1098,6 +1098,7 @@ export class AgentService {
         ),
         locale,
         analysisResultData,
+        sessionKey,
       );
 
       const result: AgentRunResult = {
@@ -1830,21 +1831,45 @@ export class AgentService {
     return artifacts;
   }
 
-  private async renderSummary(message: string, fallback: string, locale: AppLocale, analysisData?: unknown): Promise<string> {
+  private async renderSummary(message: string, fallback: string, locale: AppLocale, analysisData?: unknown, conversationId?: string): Promise<string> {
     if (!this.llm) {
       return fallback;
     }
 
     try {
       const hasData = analysisData && typeof analysisData === 'object';
+      let conversationContext = '';
+      if (conversationId) {
+        try {
+          const recentMessages = await prisma.message.findMany({
+            where: { conversationId },
+            orderBy: { createdAt: 'desc' },
+            take: 6,
+            select: { role: true, content: true },
+          });
+          if (recentMessages.length > 0) {
+            conversationContext = recentMessages
+              .reverse()
+              .map(m => `${m.role}: ${m.content.slice(0, 200)}`)
+              .join('\n');
+          }
+        } catch {
+          // Non-blocking: proceed without conversation context.
+        }
+      }
       const promptParts = [
         this.localize(locale, '你是结构工程 Agent 的结果解释器。', 'You explain results produced by the structural engineering agent.'),
         hasData
           ? this.localize(locale, '请用中文在 250 字以内，根据用户意图从分析数据中提取用户关心的结果并回答。只引用数据中存在的数值，不要杜撰。', 'Respond in English within 250 words. Extract and present the results the user cares about from the analysis data. Only cite values present in the data; do not invent data.')
           : this.localize(locale, '请用中文在 80 字以内给出结论，不要杜撰未出现的数据。', 'Respond in English within 80 words and do not invent data that was not provided.'),
+      ];
+      if (conversationContext) {
+        promptParts.push(this.localize(locale, `对话上下文：\n${conversationContext}`, `Conversation context:\n${conversationContext}`));
+      }
+      promptParts.push(
         this.localize(locale, `用户意图：${message}`, `User intent: ${message}`),
         this.localize(locale, `系统结果：${fallback}`, `System result: ${fallback}`),
-      ];
+      );
       if (hasData) {
         const dataObj = analysisData as Record<string, unknown>;
         const compact = JSON.stringify({
