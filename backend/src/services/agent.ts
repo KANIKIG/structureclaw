@@ -1873,10 +1873,10 @@ export class AgentService {
       if (hasData) {
         const dataObj = analysisData as Record<string, unknown>;
         const compact = JSON.stringify({
-          reactions: dataObj['reactions'] ?? null,
+          analysisMode: dataObj['analysisMode'] ?? null,
+          plane: dataObj['plane'] ?? null,
+          summary: dataObj['summary'] ?? null,
           envelope: dataObj['envelope'] ?? null,
-          forces: dataObj['forces'] ?? null,
-          displacements: dataObj['displacements'] ?? null,
         });
         promptParts.push(this.localize(locale, `分析数据：${compact}`, `Analysis data: ${compact}`));
       }
